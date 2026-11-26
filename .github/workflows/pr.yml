@@ -71,7 +71,8 @@ jobs:
       TARGET: ${{ matrix.name }}
       STAGE: ${{ matrix.stage }}
       VERSION: ${{ matrix.version }}
-      IMAGE: ${{ matrix.image }}
+      # not IMAGE: bake reads env vars named like its variables and would override IMAGE in docker-bake.hcl
+      IMAGE_REF: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,7 +93,7 @@ jobs:
             *.cache-to=type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Smoke test
-        run: tests/smoke.sh "$IMAGE" "$STAGE" "$VERSION"
+        run: tests/smoke.sh "$IMAGE_REF" "$STAGE" "$VERSION"
 
       # Fails on a fixable CRITICAL. The regression-only gate against the published tag comes with the
       # auto lane (.design-log/001 §4.1, phase 3b), once published tags exist.
@@ -100,13 +101,13 @@ jobs:
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
-            image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$IMAGE"
+            image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$IMAGE_REF"
 
       - name: Trivy (HIGH, report only)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
-            image --scanners vuln --severity HIGH --ignore-unfixed --exit-code 0 --no-progress "$IMAGE"
+            image --scanners vuln --severity HIGH --ignore-unfixed --exit-code 0 --no-progress "$IMAGE_REF"
 
   # Single stable name for the ruleset's required check, independent of how many targets exist
   pr:
