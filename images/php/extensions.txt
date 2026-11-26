@@ -1,0 +1,9 @@
+# PHP extensions installed on top of the official image (via mlocati/php-extension-installer).
+# tests/smoke.sh asserts every entry is loaded. Removing one is a breaking change for projects.
+apcu
+gd
+intl
+mysqli
+opcache
+pdo_mysql
+zip
