@@ -116,6 +116,8 @@ jobs:
       id-token: write # keyless cosign signature via GitHub OIDC
     strategy:
       fail-fast: false
+      # Docker Hub counts every manifest read as a pull and rate-limits bursts (429); 2 at a time stays below that
+      max-parallel: 2
       matrix:
         include: ${{ fromJSON(needs.targets.outputs.list) }}
     name: publish (${{ matrix.name }})
@@ -149,29 +151,44 @@ jobs:
           for d in *; do sources+=("$REPO@sha256:$d"); done
           [ "${#sources[@]}" -eq 2 ] || { echo "::error::expected 2 platform digests, got ${#sources[@]}"; exit 1; }
 
+          # Docker Hub rate limits (429) are transient: wait and retry instead of failing the release
+          backoff() { echo "$1, retrying in $(( $2 * 60 ))s"; sleep $(( $2 * 60 )); }
+
           # The immutable tag is written once and never overwritten. Only a clear "not found" counts as
-          # missing; any other error (network, auth, rate limit) stops the release instead of overwriting.
-          if out=$(docker buildx imagetools inspect "$IMMUTABLE" 2>&1); then
-            echo "::notice::$IMMUTABLE already published, left unchanged"
-          elif grep -qi "not found" <<< "$out"; then
-            docker buildx imagetools create -t "$IMMUTABLE" "${sources[@]}"
-          else
-            echo "$out"; echo "::error::could not check whether $IMMUTABLE exists"; exit 1
-          fi
-
+          # missing; any other error (network, auth, rate limit) is retried, then stops the release.
+          # --raw reads only the top manifest, so the check costs one pull instead of one per platform.
           tags=()
-          for t in $MOVING; do tags+=(-t "$t"); done
-          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          for i in 1 2 3 4 5; do
+            if out=$(docker buildx imagetools inspect --raw "$IMMUTABLE" 2>&1); then
+              echo "::notice::$IMMUTABLE already published, left unchanged"; break
+            elif grep -qi "not found" <<< "$out"; then
+              tags+=(-t "$IMMUTABLE"); break
+            fi
+            echo "$out"
+            [ "$i" -lt 5 ] || { echo "::error::could not check whether $IMMUTABLE exists"; exit 1; }
+            backoff "check failed" "$i"
+          done
 
-          first=${MOVING%% *}
-          digest=$(docker buildx imagetools inspect "$first" --format '{{json .Manifest}}' | jq -r .digest)
-          [[ "$digest" == sha256:* ]] || { echo "::error::no manifest list digest for $first"; exit 1; }
+          for t in $MOVING; do tags+=(-t "$t"); done
+          for i in 1 2 3 4 5; do
+            docker buildx imagetools create --metadata-file /tmp/index.json "${tags[@]}" "${sources[@]}" && break
+            [ "$i" -lt 5 ] || { echo "::error::could not create the manifest list"; exit 1; }
+            backoff "create failed" "$i"
+          done
+
+          digest=$(jq -r '."containerimage.descriptor".digest' /tmp/index.json)
+          [[ "$digest" == sha256:* ]] || { echo "::error::no manifest list digest in create metadata"; exit 1; }
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign
         env:
           DIGEST: ${{ steps.index.outputs.digest }}
-        run: cosign sign --yes "$REPO@$DIGEST"
+        run: |
+          for i in 1 2 3 4 5; do
+            cosign sign --yes "$REPO@$DIGEST" && break
+            [ "$i" -lt 5 ] || { echo "::error::signing failed 5 times"; exit 1; }
+            echo "signing failed, retrying in $(( i * 60 ))s"; sleep $(( i * 60 ))
+          done
 
       # Acceptance check of phase 3: signature and SBOM can be verified on the published manifest list
       - name: Verify
