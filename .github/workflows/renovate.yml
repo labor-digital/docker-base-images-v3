@@ -1,0 +1,74 @@
+# Self-hosted Renovate (taken over from v2, where it is proven). It only opens PRs; pr.yml tests them.
+# Configuration: renovate.json in the repo root.
+name: Renovate
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Simulate only, write nothing'
+        type: boolean
+        default: false
+      logLevel:
+        description: 'Log level'
+        type: choice
+        options: [info, debug]
+        default: info
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  renovate:
+    runs-on: ubuntu-24.04
+    steps:
+      # The default GITHUB_TOKEN can't be used: PRs it creates don't trigger workflows, so pr.yml would never run.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      # An app installation token can't query /user, so Renovate needs its commit author spelled out.
+      - name: Resolve bot identity
+        id: bot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          USER_ID=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
+          if [ -z "$USER_ID" ] || [ "$USER_ID" = "null" ]; then
+            echo "::error::Could not resolve the user id of ${SLUG}[bot]"
+            exit 1
+          fi
+          echo "username=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "git-author=${SLUG} <${USER_ID}+${SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@ebcbb513d07ead4d9c0c2139064301db05e84a3e # v46.3.15
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          # Hold the Renovate major line here so an action update can't silently move it.
+          renovate-version: '44'
+        env:
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_USERNAME: ${{ steps.bot.outputs.username }}
+          RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author }}
+          # Commit through the API: commits are signed by the app and it needs no push rights on master.
+          RENOVATE_PLATFORM_COMMIT: 'enabled'
+          # Empty means a real run (the action has no args input since v19).
+          RENOVATE_DRY_RUN: ${{ inputs.dryRun && 'full' || '' }}
+          # Authenticated Docker Hub lookups (rate limits). Read-only token, not the push token.
+          RENOVATE_HOST_RULES: >-
+            [{"hostType":"docker","matchHost":"index.docker.io",
+              "username":"${{ secrets.DOCKERHUB_READ_USERNAME }}",
+              "password":"${{ secrets.DOCKERHUB_READ_TOKEN }}"}]
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}

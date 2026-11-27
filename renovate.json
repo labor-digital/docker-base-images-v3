@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Keeps every pinned dependency of this repo current. All PRs need a human review for now.",
+    "The auto lane (php/node patch + digest merge without review) is added in phase 3b, together with",
+    "renovate-guard and the ruleset bypass. See .design-log/001-v3-architecture.md section 4.1."
+  ],
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Berlin",
+  "enabledManagers": ["dockerfile", "github-actions", "custom.regex"],
+  "customManagers": [
+    {
+      "description": "Upstream base image of every line in docker-bake.hcl (one row per line).",
+      "customType": "regex",
+      "managerFilePatterns": ["/^docker-bake\\.hcl$/"],
+      "matchStrings": [
+        "image = \"(?<depName>[^\"]+)\", tag = \"(?<currentValue>[^\"]+)\", digest = \"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Tool images pinned by tag + digest inside workflow run steps (hadolint, shellcheck, actionlint, trivy).",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9./_-]*/[a-z0-9._-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Doppler CLI version installed in the images.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/.+/Dockerfile$/"],
+      "matchStrings": ["ARG DOPPLER_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "DopplerHQ/cli",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "A line is fixed to its minor (php 8.4 stays 8.4). New lines come from scripts/new-versions.sh, not from Renovate.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["php", "node"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    }
+  ]
+}

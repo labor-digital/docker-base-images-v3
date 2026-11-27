@@ -1,0 +1,3 @@
+# The master-review ruleset requires an approval from a code owner for every file below.
+# The team needs write access to this repo, otherwise GitHub ignores the entry.
+*    @labor-digital/developer
