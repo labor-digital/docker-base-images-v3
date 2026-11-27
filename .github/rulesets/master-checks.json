@@ -12,7 +12,10 @@
       "parameters": {
         "strict_required_status_checks_policy": true,
         "do_not_enforce_on_create": false,
-        "required_status_checks": [{ "context": "pr" }]
+        "required_status_checks": [
+          { "context": "pr", "integration_id": 15368 },
+          { "context": "renovate-guard", "integration_id": 15368 }
+        ]
       }
     }
   ]

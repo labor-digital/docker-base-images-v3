@@ -1,0 +1,7 @@
+[
+  {
+    "filename": "docker-bake.hcl",
+    "status": "modified",
+    "patch": "@@ -22,4 +22,4 @@\n       { minor = \"8.3\", image = \"php\", tag = \"8.3.37-apache\", digest = \"sha256:fb5e44981a84757b95cd29440f534509f42a9766382c8c83bfd404924a62379b\" },\n-      { minor = \"8.4\", image = \"php\", tag = \"8.4.28-apache\", digest = \"sha256:95c1a1dfaaffef4bcfee563838c50620457a3c00196c4bf5ddb66934d707fea2\" },\n+      { minor = \"8.4\", image = \"php\", tag = \"8.4.29-apache\", digest = \"sha256:2222222222222222222222222222222222222222222222222222222222222222\" },\n       { minor = \"8.5\", image = \"php\", tag = \"8.5.13-apache\", digest = \"sha256:256c25149bca6639f538ece3c5dda90684409227dec546b87ca174950569b8f1\" },"
+  }
+]

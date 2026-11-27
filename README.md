@@ -61,6 +61,28 @@ tests/smoke.sh labordigital/docker-base-images-v3:php-8.4.28-dev dev 8.4.28
 Every change goes through a pull request: `feature/*`, `bugfix/*`, `renovate/*` → `master`, Conventional Commits, merge commits (no squash).
 A code owner must approve (`.github/CODEOWNERS`). As a reviewer, also pull the PR, build it and run the smoke tests on your Mac (arm64), because CI only builds amd64 for pull requests.
 
+### Auto lane: security updates without review
+
+Upstream patch or digest updates of `php` / `node` (e.g. `8.4.28` → `8.4.29`, or a Debian rebuild of `8.4.28`) are merged by
+Renovate itself once `pr` and `renovate-guard` are green, then released ([design log §4.1](.design-log/001-v3-architecture.md)).
+
+- **`renovate-guard`** passes only for a diff that changes nothing but version rows in `docker-bake.hcl`, within the same minor,
+  with digests that match Docker Hub right now (`scripts/renovate-guard.sh`, self-test in `tests/guard/`). Any other PR needs an
+  approval from someone with write access on its current commit.
+- **Trivy** in `pr.yml` fails only on a fixable CRITICAL that the published tag of that line does not already have.
+- Every auto-merged release is logged on the open issue labelled `auto-lane`. Skim it weekly.
+
+### Rollback
+
+Point a moving tag back to an earlier immutable tag. The digest stays the same, so the signature stays valid:
+
+```bash
+docker buildx imagetools create -t labordigital/docker-base-images-v3:php84 labordigital/docker-base-images-v3:php-8.4.28
+docker buildx imagetools create -t labordigital/docker-base-images-v3:php8.4 labordigital/docker-base-images-v3:php-8.4.28
+```
+
+Needs a Docker Hub login with push rights. The next release moves the tag forward again, so also revert or hold the change that caused it.
+
 ## One-time repository setup (GitHub admin)
 
 Not automated on purpose; run once after creating the repository, then check the result in the GitHub UI.
@@ -78,8 +100,13 @@ gh api -X PUT "repos/$REPO/vulnerability-alerts"
 gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=selected -F sha_pinning_required=true
 gh api -X PUT "repos/$REPO/actions/permissions/selected-actions" -F github_owned_allowed=true \
   -f 'patterns_allowed[]=docker/*' -f 'patterns_allowed[]=renovatebot/*' -f 'patterns_allowed[]=sigstore/*'
-gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read
+gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
+# Workflows of fork PRs only run after a maintainer approves them (they could otherwise fake a check name)
+gh api -X PUT "repos/$REPO/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors
 for f in .github/rulesets/*.json; do gh api -X POST "repos/$REPO/rulesets" --input "$f"; done
+# Later changes to the JSON: update the existing ruleset by id instead of creating a second one
+# id=$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.name=="master-checks") | .id')
+# gh api -X PUT "repos/$REPO/rulesets/$id" --input .github/rulesets/master-checks.json
 ```
 
 Secrets and variables for Renovate: `vars.RENOVATE_APP_CLIENT_ID`, `secrets.RENOVATE_APP_PRIVATE_KEY`, and a read-only Docker Hub token as `secrets.DOCKERHUB_READ_USERNAME` / `secrets.DOCKERHUB_READ_TOKEN`.

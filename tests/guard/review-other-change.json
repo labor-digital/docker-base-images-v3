@@ -1,0 +1,7 @@
+[
+  {
+    "filename": "docker-bake.hcl",
+    "status": "modified",
+    "patch": "@@ -10,3 +10,3 @@\n variable \"IMAGE\" {\n-  default = \"labordigital/docker-base-images-v3\"\n+  default = \"attacker/images\"\n }"
+  }
+]
