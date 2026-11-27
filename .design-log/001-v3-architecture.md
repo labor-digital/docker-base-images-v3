@@ -12,6 +12,8 @@ Status: accepted, phases 1–2 merged, phase 3 in review · Date: 2026-11-26 · 
 - **Flow:** one job per target and architecture (native `ubuntu-24.04` and `ubuntu-24.04-arm`, 16 jobs) pushes by digest. Then one job per target builds the manifest list, writes the tags, signs and verifies.
 - **The immutable tag check fails closed.** Only a registry "not found" counts as missing. Any other error stops the release instead of overwriting `php-X.Y.Z`.
 - **Re-release of an unchanged patch:** after a digest-only update, `php84` moves to the new build, and `php-8.4.28` keeps the first build of that patch, as §5 specifies.
+- **First release (run 46024759857):** all 16 builds and all 8 targets published, signed, with SBOM, both architectures; checked afterwards with `cosign verify` and `imagetools inspect` on every tag. The `Verify` step failed for 6 of 8 targets because Docker Hub shows a fresh signature only after a short delay. It now retries for up to 100 s.
+- **Docker Hub credentials:** the org-level secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` are used for now. They are visible to every workflow in the repo and probably not scoped to this repository, unlike §6. **Before phase 3b:** add a token scoped to this repo as `release` environment secrets with the same names (they take precedence).
 - **Tested locally:** two-arch push by digest, manifest merge with SBOM and provenance kept, and the immutable-tag logic (including a second run), all against a local registry. Not tested locally: Docker Hub and the keyless cosign signature (needs GitHub OIDC). The `Verify` step covers both on the first real run.
 
 **2026-11-26:** the plan was accepted. Phases 1 (bootstrap) and 2 (PHP images) are implemented locally; nothing is pushed yet.

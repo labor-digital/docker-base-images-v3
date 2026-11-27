@@ -179,9 +179,15 @@ jobs:
           DIGEST: ${{ steps.index.outputs.digest }}
           IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
         run: |
-          cosign verify "$REPO@$DIGEST" \
-            --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          # Docker Hub shows a fresh signature only after a short delay, so an immediate verify can miss it
+          for i in 1 2 3 4 5 6; do
+            cosign verify "$REPO@$DIGEST" \
+              --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null && break
+            [ "$i" -lt 6 ] || { echo "::error::signature not found after 6 attempts"; exit 1; }
+            echo "Signature not visible yet, retrying in 20s ($i/5)"
+            sleep 20
+          done
           docker buildx imagetools inspect "$REPO@$DIGEST" --format '{{json .SBOM}}' \
             | jq -e '[.. | objects | select(has("SPDX"))] | length == 2' > /dev/null \
             || { echo "::error::SBOM missing for at least one platform"; exit 1; }
