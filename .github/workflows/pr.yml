@@ -39,6 +39,9 @@ jobs:
             rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
             -color
 
+      - name: renovate-guard self-test
+        run: tests/guard/self-test.sh
+
   targets:
     runs-on: ubuntu-24.04
     outputs:
@@ -54,7 +57,8 @@ jobs:
             name: .key,
             stage: .value.target,
             version: .value.labels["org.opencontainers.image.version"],
-            image: .value.tags[-1]
+            image: .value.tags[-1],
+            published: .value.tags[0]
           }]')
           echo "$list" | jq .
           echo "list=$list" >> "$GITHUB_OUTPUT"
@@ -96,13 +100,31 @@ jobs:
       - name: Smoke test
         run: tests/smoke.sh "$IMAGE_REF" "$STAGE" "$VERSION"
 
-      # Fails on a fixable CRITICAL. The regression-only gate against the published tag comes with the
-      # auto lane (.design-log/001 §4.1, phase 3b), once published tags exist.
-      - name: Trivy (CRITICAL, fixable)
+      # Fails only on a fixable CRITICAL that the currently published tag of this line does not already have
+      # (D9). Otherwise one old upstream CVE without a fix would block every security update behind it.
+      # A line that was never published is compared against nothing, so any fixable CRITICAL fails.
+      - name: Trivy (fixable CRITICAL, regressions only)
+        env:
+          PUBLISHED: ${{ matrix.published }}
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
-            image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress "$IMAGE_REF"
+          scan() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+              image --scanners vuln --severity CRITICAL --ignore-unfixed --format json --quiet "$@" \
+              | jq -r '[.Results[]?.Vulnerabilities[]? | "\(.VulnerabilityID) \(.PkgName)"] | unique[]'
+          }
+          scan "$IMAGE_REF" > /tmp/new.txt
+          rc=0; scripts/registry-digest.sh "$PUBLISHED" > /dev/null || rc=$?
+          case "$rc" in
+            0) scan --image-src remote --platform linux/amd64 "$PUBLISHED" > /tmp/published.txt ;;
+            2) echo "$PUBLISHED is not published yet, every fixable CRITICAL counts"; : > /tmp/published.txt ;;
+            *) echo "::error::could not check $PUBLISHED on Docker Hub"; exit 1 ;;
+          esac
+          echo "Fixable CRITICAL in this build: $(wc -l < /tmp/new.txt), in $PUBLISHED: $(wc -l < /tmp/published.txt)"
+          regressions=$(comm -23 <(sort /tmp/new.txt) <(sort /tmp/published.txt))
+          if [ -n "$regressions" ]; then
+            echo "::error::new fixable CRITICAL compared with $PUBLISHED:"; echo "$regressions"; exit 1
+          fi
 
       - name: Trivy (HIGH, report only)
         run: |

@@ -1,8 +1,19 @@
 # docker-base-images-v3 — Plan
 
-Status: accepted, phases 1–2 merged, phase 3 in review · Date: 2026-11-26 · Replaces: `labor-digital/docker-base-images-v2`
+Status: accepted, phases 1–3 merged, phase 3b in review · Date: 2026-11-26 · Replaces: `labor-digital/docker-base-images-v2`
 
 ## Implementation log
+
+**2026-11-27, phase 3b (auto lane):**
+- **Guard decides on the diff, not the author.** `scripts/renovate-guard.sh` passes any PR whose only change is version rows in `docker-bake.hcl` (same image, same minor, same variant, patch not lower) with digests that Docker Hub serves right now. A human PR with such a diff also passes the guard; the review ruleset still requires a review for humans. Otherwise the guard needs an approval from a person with write access, other than the author, on the PR's current head commit (each reviewer's latest decisive review counts).
+- **Registry lookups use HEAD requests** (`scripts/registry-digest.sh`), which Docker Hub does not count as pulls.
+- **Both required checks are pinned to the GitHub Actions app** (`integration_id: 15368`). The Renovate App has `checks: write` and `statuses: write`, so without the pin a stolen app key could post a green `renovate-guard` itself.
+- **Residual risk: check-name spoofing by workflows from a PR.** A PR can add a job named `renovate-guard` to `pr.yml`, and a `pull_request_review` run uses the PR's version of `renovate-guard.yml`. The real guard (always master's code) then fails, because a workflow file changed, but a second, green check with the same name exists. Exploiting this also needs the Renovate App key (the only actor that may skip the review). Mitigations: workflows of fork PRs need a maintainer's approval for all external contributors (README setup), and write access is limited to the Developer team.
+- **Trivy regression gate (D9)** in `pr.yml`: fixable CRITICAL of the build minus those of the published moving tag (`tags[0]`, scanned remotely, amd64). An unpublished line is compared against nothing; a failed registry check fails the PR. `release.yml` has no Trivy step; what it releases was gated in the PR.
+- **Report:** `release.yml` comments on the open `auto-lane` issue (created on first use) for every release whose PR was merged by `labor-renovate[bot]`: PR, old→new tag and digest, run link. The Trivy delta is not copied into the issue; it is in the PR's checks. Pinning the issue is a one-time manual step.
+- **Temporary deviation, extended:** the guard requires an approval, and the admin can't approve their own PRs. While development is single-handed, the Admin role therefore also needs a `pull_request` bypass on `master-checks`. Use it only when `pr` is green and only `renovate-guard` waits for an approval. Remove both admin bypasses together once a second reviewer exists.
+- **Not active yet:** Renovate has no credentials in this repo (`RENOVATE_APP_CLIENT_ID`, `RENOVATE_APP_PRIVATE_KEY`, `DOCKERHUB_READ_*`), and the app must be installed on it. The acceptance test "a real Renovate digest PR merges and releases with no human" runs once that is done.
+- **Tested locally:** guard self-test (7 fixtures, including the 4 acceptance cases), live HEAD lookup (digest matches the bake pin, 404 for a missing tag), Trivy JSON parsing and the regression comparison against the published `php8.4`, rollback keeping the digest. Renovate config passes `renovate-config-validator`.
 
 **2026-11-27:** phases 1 and 2 are merged (PR #1, #2). The first GitHub run found one bug: a job env var `IMAGE` overrode the bake variable of the same name. Renamed to `IMAGE_REF`.
 

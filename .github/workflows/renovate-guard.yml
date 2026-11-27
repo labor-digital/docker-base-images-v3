@@ -1,0 +1,67 @@
+# Required check "renovate-guard" (.design-log/001 §4.1). Green only if the PR may be merged by the
+# Renovate App's review bypass: either a pure, registry-verified upstream patch/digest bump
+# (scripts/renovate-guard.sh), or a PR that a person with write access approved on its current head commit.
+#
+# Never runs PR code: pull_request_target runs this file from master, and the checkout below is always the
+# default branch. The PR is only read through the API. Pinned to GitHub Actions in the ruleset, so the
+# Renovate App (which can write statuses) cannot post this check itself.
+name: Renovate guard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Re-evaluate when someone approves or a review is dismissed
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: renovate-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  renovate-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[]' | jq -s . > /tmp/files.json
+
+          if verdict=$(scripts/renovate-guard.sh /tmp/files.json 2>&1); then
+            { echo "### Auto lane: verified upstream bump"; echo '```'; echo "$verdict"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "$verdict"
+
+          # Otherwise a person with write access other than the author must have approved the current head commit.
+          # Only each reviewer's latest decisive review counts (a later "changes requested" cancels an approval).
+          approvers=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" --jq '.[]' | jq -rs --arg sha "$HEAD_SHA" --arg author "$AUTHOR" '
+            map(select(.state != "COMMENTED")) | group_by(.user.login) | map(max_by(.submitted_at))
+            | map(select(.state == "APPROVED" and .commit_id == $sha and .user.login != $author) | .user.login) | .[]')
+          for user in $approvers; do
+            perm=$(gh api "repos/$REPO/collaborators/$user/permission" --jq .permission)
+            case "$perm" in
+              admin|maintain|write)
+                { echo "### Approved by $user ($perm)"; echo '```'; echo "$verdict"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+                exit 0 ;;
+            esac
+          done
+
+          { echo "### Needs an approving review"; echo '```'; echo "$verdict"; echo '```'
+            echo "Not a pure upstream bump, and no approval from a person with write access on ${HEAD_SHA:0:7}."; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::needs an approving review (see summary)"
+          exit 1

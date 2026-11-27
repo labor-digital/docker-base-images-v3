@@ -1,9 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Keeps every pinned dependency of this repo current. All PRs need a human review for now.",
-    "The auto lane (php/node patch + digest merge without review) is added in phase 3b, together with",
-    "renovate-guard and the ruleset bypass. See .design-log/001-v3-architecture.md section 4.1."
+    "Keeps every pinned dependency of this repo current.",
+    "Auto lane: upstream php/node patch or digest updates in docker-bake.hcl merge without review once pr and",
+    "renovate-guard are green. Everything else waits for a human. See .design-log/001-v3-architecture.md section 4.1."
   ],
   "extends": [
     "config:recommended",
@@ -50,6 +50,18 @@
       "matchPackageNames": ["php", "node"],
       "matchUpdateTypes": ["major", "minor"],
       "enabled": false
+    },
+    {
+      "description": "Auto lane (.design-log/001 §4.1). renovate-guard re-checks the diff and the registry digest; the master-review ruleset lets only this app skip the review, never the checks.",
+      "matchFileNames": ["docker-bake.hcl"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["php", "node"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false,
+      "automergeStrategy": "merge-commit",
+      "rebaseWhen": "behind-base-branch"
     }
   ]
 }
