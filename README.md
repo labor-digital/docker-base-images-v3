@@ -18,6 +18,15 @@ Image: `labordigital/docker-base-images-v3`
 
 Supported lines are whatever [docker-bake.hcl](docker-bake.hcl) lists. Lines past upstream end of life are no longer built.
 
+Every tag is published for `linux/amd64` and `linux/arm64`, with an SBOM, build provenance and a keyless cosign signature:
+
+```bash
+cosign verify labordigital/docker-base-images-v3:php84 \
+  --certificate-identity https://github.com/labor-digital/docker-base-images-v3/.github/workflows/release.yml@refs/heads/master \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+docker buildx imagetools inspect labordigital/docker-base-images-v3:php84 --format '{{json .SBOM}}'
+```
+
 ## Using it in a project
 
 Same contract as v2. Only `DOCKER_BASE_IMAGE` changes:
@@ -68,13 +77,25 @@ gh api -X PUT "orgs/labor-digital/teams/developer/repos/$REPO" -f permission=pus
 gh api -X PUT "repos/$REPO/vulnerability-alerts"
 gh api -X PUT "repos/$REPO/actions/permissions" -F enabled=true -f allowed_actions=selected -F sha_pinning_required=true
 gh api -X PUT "repos/$REPO/actions/permissions/selected-actions" -F github_owned_allowed=true \
-  -f 'patterns_allowed[]=docker/*' -f 'patterns_allowed[]=renovatebot/*'
+  -f 'patterns_allowed[]=docker/*' -f 'patterns_allowed[]=renovatebot/*' -f 'patterns_allowed[]=sigstore/*'
 gh api -X PUT "repos/$REPO/actions/permissions/workflow" -f default_workflow_permissions=read
 for f in .github/rulesets/*.json; do gh api -X POST "repos/$REPO/rulesets" --input "$f"; done
 ```
 
 Secrets and variables for Renovate: `vars.RENOVATE_APP_CLIENT_ID`, `secrets.RENOVATE_APP_PRIVATE_KEY`, and a read-only Docker Hub token as `secrets.DOCKERHUB_READ_USERNAME` / `secrets.DOCKERHUB_READ_TOKEN`.
-The push token for Docker Hub comes with the release workflow (phase 3) and lives in a `release` environment.
+### Publishing (`release.yml`)
+
+On Docker Hub (org owner): create the public repository `labordigital/docker-base-images-v3` and an organization access token
+with read/write on that repository only. Then store it in a `release` environment that only `master` can deploy from:
+
+```bash
+gh api -X PUT "repos/$REPO/environments/release" --input - <<'EOF'
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+EOF
+gh api -X POST "repos/$REPO/environments/release/deployment-branch-policies" -f name=master -f type=branch
+gh secret set DOCKERHUB_USERNAME --env release --repo "$REPO"   # the user name that belongs to the token
+gh secret set DOCKERHUB_TOKEN --env release --repo "$REPO"
+```
 
 ## License
 

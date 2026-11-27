@@ -1,8 +1,18 @@
 # docker-base-images-v3 — Plan
 
-Status: accepted, phases 1–2 in progress · Date: 2026-11-26 · Replaces: `labor-digital/docker-base-images-v2`
+Status: accepted, phases 1–2 merged, phase 3 in review · Date: 2026-11-26 · Replaces: `labor-digital/docker-base-images-v2`
 
 ## Implementation log
+
+**2026-11-27:** phases 1 and 2 are merged (PR #1, #2). The first GitHub run found one bug: a job env var `IMAGE` overrode the bake variable of the same name. Renamed to `IMAGE_REF`.
+
+**Temporary deviation from §6:** `master-review` has the repository Admin role as bypass actor (`pull_request` mode), so the admin can merge their own PRs while development runs mostly single-handed. `master-checks` has no bypass, so CI must still be green. The JSON in `.github/rulesets/` stays the target state. **Remove the bypass** (`{"bypass_actors":[]}`) once a second reviewer is available, at the latest before phase 3b enables the auto lane.
+
+**Phase 3 (`release.yml`):**
+- **Flow:** one job per target and architecture (native `ubuntu-24.04` and `ubuntu-24.04-arm`, 16 jobs) pushes by digest. Then one job per target builds the manifest list, writes the tags, signs and verifies.
+- **The immutable tag check fails closed.** Only a registry "not found" counts as missing. Any other error stops the release instead of overwriting `php-X.Y.Z`.
+- **Re-release of an unchanged patch:** after a digest-only update, `php84` moves to the new build, and `php-8.4.28` keeps the first build of that patch, as §5 specifies.
+- **Tested locally:** two-arch push by digest, manifest merge with SBOM and provenance kept, and the immutable-tag logic (including a second run), all against a local registry. Not tested locally: Docker Hub and the keyless cosign signature (needs GitHub OIDC). The `Verify` step covers both on the first real run.
 
 **2026-11-26:** the plan was accepted. Phases 1 (bootstrap) and 2 (PHP images) are implemented locally; nothing is pushed yet.
 
